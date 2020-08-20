@@ -95,12 +95,13 @@ body_offsets = [
 16*23+2, 16*23+3, 16*23+4, 16*23+5, 16*23+6, 16*23+7,
 16*24+0, 16*24+1, 16*24+2, 16*24+3, 16*24+4, 16*24+5, 16*25+4]
 
-def shuffle_offsets(args, rom, base_offsets, shuffled_offsets, spritelist, current_sprite):
+def shuffle_offsets(args, rom, base_offsets, shuffled_offsets, spritelist, current_sprite, force_use_sprite=False):
     for off in range(len(base_offsets)):
         if (args.multisprite_simple or args.multisprite_full):
-            foundspr = False
-            while (foundspr is False):
-                srcpath = random.choice(spritelist)
+            foundspr = force_use_sprite
+            shuffled_spritelist = spritelist.copy()
+            random.shuffle(shuffled_spritelist)
+            for srcpath in shuffled_spritelist:
                 srcsheet = srcpath.read_bytes()
                 # Z sprite format: little endian pixel offset stored as 4 byte
                 # integer at byte 9 of .zspr
@@ -116,6 +117,13 @@ def shuffle_offsets(args, rom, base_offsets, shuffled_offsets, spritelist, curre
                         if (srcsheet[srcoff+tst_w]):
                             foundspr = True
                             break
+                if (foundspr):
+                    break
+
+            if (not foundspr):
+                srcsheet = current_sprite
+                baseoff = 0
+
 
         else:
             srcsheet = current_sprite
