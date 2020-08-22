@@ -337,12 +337,17 @@ def load_spritesheets(args):
         if args.sprite:
             for x in args.sprite.split(","):
                 sprite = get_sprite_from_name(x)
-                spritesheets.append(sprite)
+                if sprite:
+                    if sprite.sprite != romsprite.sprite or sprite.palette != romsprite.palette or sprite.glove_palette != romsprite.glove_palette:
+                        spritesheets.append(sprite)
+                else:
+                    raise Exception("Invalid Sprite: " + x)
         else:
             _populate_sprite_table()
             for sprite in set(_sprite_table.values()):
-                spritesheets.append(sprite)
-    
+                if sprite.sprite != romsprite.sprite or sprite.palette != romsprite.palette or sprite.glove_palette != romsprite.glove_palette:
+                    spritesheets.append(sprite)
+
     if len(spritesheets) > args.max_sprites:
         spritesheets.sort(key=get_sprite_name)
         random.shuffle(spritesheets)
