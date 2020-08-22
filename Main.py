@@ -148,6 +148,13 @@ def get_sprite_from_name(name, local_random=random):
         name = 'link'
     return _sprite_table.get(name, None)
 
+def get_sprite_from_sprite(sprite):
+    _populate_sprite_table()
+    for x in _sprite_table.values():
+        if sprite.sprite == x.sprite and sprite.palette == x.palette and sprite.glove_palette == x.glove_palette:
+            return x
+    return None
+
 class Sprite(object):
     default_palette = [255, 127, 126, 35, 183, 17, 158, 54, 165, 20, 255, 1, 120, 16, 157,
                        89, 71, 54, 104, 59, 74, 10, 239, 18, 92, 42, 113, 21, 24, 122,
@@ -321,8 +328,11 @@ def get_sprite_name(sprite):
     return sprite.name
 
 def load_spritesheets(args):
-    sprite = Sprite(args.rom)
-    spritesheets.append(sprite)
+    romsprite = Sprite(args.rom)
+    sprite = get_sprite_from_sprite(romsprite)
+    if sprite:
+        logging.info("Rom Sprite is %s, made by %s", sprite.name, sprite.author_name)
+    spritesheets.append(sprite if sprite else romsprite)
     if args.multisprite_simple or args.multisprite_full:
         if args.sprite:
             for x in args.sprite.split(","):
