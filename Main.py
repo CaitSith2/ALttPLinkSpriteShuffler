@@ -1,3 +1,4 @@
+import io
 import logging
 import argparse
 import os
@@ -9,6 +10,7 @@ from glob import glob
 from urllib.parse import urlparse
 import shutil
 import struct
+import concurrent.futures
 
 __version__ = '0.3'
 
@@ -62,83 +64,357 @@ DOWN = 2
 
 # Offset: facing dict, used to keep walk cycle with consistent facing
 head_offsets = { # Row from spritesheet commented at the end
-        0: RIGHT, 1: DOWN, 2: UP, 3: DOWN, 4: DOWN, 5: DOWN, 6: DOWN, 7: DOWN, # A0-7
-        16*1+7: DOWN,                                                          # B7
-        16*4+2: RIGHT, 16*4+3: DOWN, 16*4+4: UP, 16*4+7: UP,                   # E2, 3, 4, 7
-        16*10+3: RIGHT, 16*10+4: RIGHT,                                        # K3, 4
-        16*11+5: DOWN, 16*11+6: RIGHT, 16*11+7: UP,                            # L5-7
-        16*20+0: DOWN, 16*20+1: RIGHT, 16*20+2: UP,                            # U0-2
-        16*23+1: UP,                                                           # X1
-        16*25+0: UP, 16*25+2: DOWN, 16*25+3: RIGHT                             # Z0, 2, 3
+        (0, 0): RIGHT, (1, 0): DOWN, (2, 0): UP, (3, 0): DOWN, (4, 0): DOWN, (5, 0): DOWN, (6, 0): DOWN, (7, 0): DOWN, # A0-7
+        (7, 1): DOWN,                                                          # B7
+        (2, 4): RIGHT, (3, 4): DOWN, (4, 4): UP, (7, 4): UP,                   # E2, 3, 4, 7
+        (3, 10): RIGHT, (4, 10): RIGHT,                                        # K3, 4
+        (5, 11): DOWN, (6, 11): RIGHT, (7, 11): UP,                            # L5-7
+        (0, 20): DOWN, (1, 20): RIGHT, (2, 20): UP,                            # U0-2
+        (1, 23): UP,                                                           # X1
+        (0, 25): UP, (2, 25): DOWN, (3, 25): RIGHT                             # Z0, 2, 3
 }
 
-walk_head_offsets = [0, 16*10+3, 16*10+4]
+walk_head_offsets = [(0, 0), (3, 10), (4, 10)]
 
 body_offsets = [
-16*1+0, 16*1+1, 16*1+2, 16*1+3, 16*1+4, 16*1+5, 16*1+6,
-16*2+0, 16*2+1, 16*2+2, 16*2+3, 16*2+4, 16*2+5, 16*2+6, 16*2+7,
-16*3+0, 16*3+1, 16*3+2, 16*3+3, 16*3+4, 16*3+7,
-16*5+5, 16*5+6, 16*5+7,
-16*6+7,
-16*8+0, 16*8+1, 16*8+2,
-16*11+3, 16*11+4, 
-16*12+0, 16*12+1, 16*12+2, 16*12+3, 16*12+4, 16*12+5, 16*12+6, 16*12+7,
-16*13+0, 16*13+1, 16*13+2, 16*13+3, 16*13+4, 16*13+5, 16*13+6, 16*13+7,
-16*14+0, 16*14+1, 16*14+2, 16*14+3, 16*14+4, 16*14+5, 16*14+6, 16*14+7,
-16*15+1, 16*15+2, 16*15+3, 16*15+4, 16*15+5, 16*15+6, 16*15+7,
-16*16+0, 16*16+1, 16*16+5, 16*16+6, 16*16+7,
-16*17+6, 16*17+7,
-16*18+3, 16*18+4, 16*18+5, 16*18+6, 16*18+7,
-16*19+3, 16*19+4, 16*19+5, 16*19+6, 16*19+7,
-16*20+4, 16*20+5, 16*20+6, 16*20+7,
-16*21+0, 16*21+1, 16*21+2, 16*21+3, 16*21+4, 16*21+5, 16*21+6,
-16*23+2, 16*23+3, 16*23+4, 16*23+5, 16*23+6, 16*23+7,
-16*24+0, 16*24+1, 16*24+2, 16*24+3, 16*24+4, 16*24+5, 16*25+4]
+[0, 1], [1, 1], [2, 1], [3, 1], [4, 1], [5, 1], [6, 1],
+[0, 2], [1, 2], [2, 2], [3, 2], [4, 2], [5, 2], [6, 2], [7, 2],
+[0, 3], [1, 3], [2, 3], [3, 3], [4, 3], [7, 3],
+[5, 5], [6, 5], [7, 5],
+[7, 6],
+[0, 8], [1, 8], [2, 8],
+[3, 11], [4, 11],
+[0, 12], [1, 12], [2, 12], [3, 12], [4, 12], [5, 12], [6, 12], [7, 12],
+[0, 13], [1, 13], [2, 13], [3, 13], [4, 13], [5, 13], [6, 13], [7, 13],
+[0, 14], [1, 14], [2, 14], [3, 14], [4, 14], [5, 14], [6, 14], [7, 14],
+[1, 15], [2, 15], [3, 15], [4, 15], [5, 15], [6, 15], [7, 15],
+[0, 16], [1, 16], [5, 16], [6, 16], [7, 16],
+[6, 17], [7, 17],
+[3, 18], [4, 18], [5, 18], [6, 18], [7, 18],
+[3, 19], [4, 19], [5, 19], [6, 19], [7, 19],
+[4, 20], [5, 20], [6, 20], [7, 20],
+[0, 21], [1, 21], [2, 21], [3, 21], [4, 21], [5, 21], [6, 21],
+[2, 23], [3, 23], [4, 23], [5, 23], [6, 23], [7, 23],
+[0, 24], [1, 24], [2, 24], [3, 24], [4, 24], [5, 24], [4, 25]]
 
-def shuffle_offsets(args, rom, base_offsets, shuffled_offsets, spritelist, current_sprite, force_use_sprite=False):
-    for off in range(len(base_offsets)):
-        if (args.multisprite_simple or args.multisprite_full):
-            foundspr = force_use_sprite
-            shuffled_spritelist = spritelist.copy()
-            random.shuffle(shuffled_spritelist)
-            for srcpath in shuffled_spritelist:
-                srcsheet = srcpath.read_bytes()
-                # Z sprite format: little endian pixel offset stored as 4 byte
-                # integer at byte 9 of .zspr
-                # source: https://docs.google.com/spreadsheets/d/1oNx8IvLcugva0lCqP_VfdalsUppuMiVyFjwBrSGCTiE/edit#gid=0
-                baseoff = struct.unpack_from('<i', srcsheet, 9)[0]
-                #Scan src region, if blank, pick another sprite
-                for tst_h in range(2):
-                    if (args.multisprite_simple):
-                        srcoff = baseoff + base_offsets[off]*0x40 + tst_h*0x200
-                    else:
-                        srcoff = baseoff + shuffled_offsets[off]*0x40 + tst_h*0x200
-                    for tst_w in range(0x40):
-                        if (srcsheet[srcoff+tst_w]):
-                            foundspr = True
-                            break
-                if (foundspr):
-                    break
+bunny_head_offsets = [[5, 25], [2, 26], [5, 26]]
+bunny_body_offsets = [[7, 25], [0, 26], [2, 26], [3, 26], [5, 26], [6, 26]]
 
-            if (not foundspr):
-                srcsheet = current_sprite
-                baseoff = 0
+unused_offsets = [
+[5, 3],  [6, 3],
+[0, 4],  [1, 4],  [5, 4],  [6, 4],
+[0, 10, 2, 3],  [2, 10, 2, 3],  [4, 10, 2, 3],  [6, 10, 2, 3],  [8, 10, 2, 3],
+[0, 13, 3, 3],  [3, 13, 2, 3],  [5, 13, 2, 3],  [7, 13, 2, 3],  [8, 13, 1, 1],  [8, 14, 1, 1],  [8, 15, 1, 1],  [5, 6],  [6, 6],
 
+[5, 7],  [6, 7],  [7, 7],
+[3, 8],  [4, 8],  [5, 8],  [6, 8],  [7, 8],
+[0, 9],  [1, 9],  [2, 9],  [3, 9],  [4, 9],  [10, 18, 1, 1], [10, 19, 1, 1],  [11, 18, 2, 2],  [13, 18, 3, 2],
+[0, 10], [1, 10], [2, 10], [5, 10], [6, 10], [7, 10],
+[0, 11], [1, 11], [2, 11],
+[0, 30, 1, 1], [0, 31, 1, 1], [1, 30, 1, 1], [0, 31, 1, 1],
+[2, 16], [3, 16], [4, 16],
+[0, 34, 2, 3], [2, 34, 2, 3], [4, 34, 2, 3], [3, 17], [4, 17], [5, 17],
+[0, 37, 2, 3], [2, 37, 2, 3], [4, 37, 2, 3],
+[3, 20],
+[7, 21],
+[0, 22], [1, 22], [2, 22], [3, 22], [4, 22], [5, 22], [6, 22], [7, 22],
+[0, 23],
+[12, 48, 2, 3], [7, 24],
+[1, 25], [12, 51, 1, 1], [13, 51, 1, 1],
+[7, 26],
+[0, 27], [1, 27], [2, 27], [3, 27], [4, 27], [5, 27], [6, 27], [7, 27]]
 
-        else:
-            srcsheet = current_sprite
-            baseoff = 0
+_sprite_table = {}
+def _populate_sprite_table():
+    if not _sprite_table:
+        def load_sprite_from_file(file):
+            filepath = os.path.join(dir, file)
+            sprite = Sprite(filepath)
+            if sprite.valid:
+                _sprite_table[sprite.name.lower()] = sprite
+                _sprite_table[os.path.basename(filepath).split(".")[0]] = sprite  # alias for filename base
 
-        for h in range(2): # All shuffled sprites are 2x2 tiles
-            if (args.multisprite_simple):
-                srcoff = baseoff + base_offsets[off]*0x40 + h*0x200
+        with concurrent.futures.ThreadPoolExecutor() as pool:
+            for dir in ['sprites']:
+                for file in os.listdir(dir):
+                    pool.submit(load_sprite_from_file, file)
+
+def get_sprite_from_name(name, local_random=random):
+    _populate_sprite_table()
+    name = name.lower()
+    if name in ['random', 'randomonhit']:
+        return local_random.choice(list(_sprite_table.values()))
+    if name == '(default link)':
+        name = 'link'
+    return _sprite_table.get(name, None)
+
+class Sprite(object):
+    default_palette = [255, 127, 126, 35, 183, 17, 158, 54, 165, 20, 255, 1, 120, 16, 157,
+                       89, 71, 54, 104, 59, 74, 10, 239, 18, 92, 42, 113, 21, 24, 122,
+                       255, 127, 126, 35, 183, 17, 158, 54, 165, 20, 255, 1, 120, 16, 157,
+                       89, 128, 105, 145, 118, 184, 38, 127, 67, 92, 42, 153, 17, 24, 122,
+                       255, 127, 126, 35, 183, 17, 158, 54, 165, 20, 255, 1, 120, 16, 157,
+                       89, 87, 16, 126, 69, 243, 109, 185, 126, 92, 42, 39, 34, 24, 122,
+                       255, 127, 126, 35, 218, 17, 158, 54, 165, 20, 255, 1, 120, 16, 151,
+                       61, 71, 54, 104, 59, 74, 10, 239, 18, 126, 86, 114, 24, 24, 122]
+
+    default_glove_palette = [246, 82, 118, 3]
+
+    def __init__(self, filename):
+        with open(filename, 'rb') as file:
+            filedata = bytearray(file.read())
+        self.name = os.path.basename(filename)
+        self.author_name = None
+        self.valid = True
+        if len(filedata) == 0x7000:
+            # sprite file with graphics and without palette data
+            self.sprite = filedata[:0x7000]
+            self.palette = list(self.default_palette)
+            self.glove_palette = list(self.default_glove_palette)
+        elif len(filedata) == 0x7078:
+            # sprite file with graphics and palette data
+            self.sprite = filedata[:0x7000]
+            self.palette = filedata[0x7000:]
+            self.glove_palette = filedata[0x7036:0x7038] + filedata[0x7054:0x7056]
+        elif len(filedata) == 0x707C:
+            # sprite file with graphics and palette data including gloves
+            self.sprite = filedata[:0x7000]
+            self.palette = filedata[0x7000:0x7078]
+            self.glove_palette = filedata[0x7078:]
+        elif len(filedata) in [0x100000, 0x200000, 0x400000]:
+            # full rom with patched sprite, extract it
+            self.sprite = filedata[0x80000:0x87000]
+            self.palette = filedata[0xDD308:0xDD380]
+            self.glove_palette = filedata[0xDEDF5:0xDEDF9]
+        elif len(filedata) in [0x100200, 0x200200, 0x400200]:
+            # full headered rom with patched sprite, extract it
+            self.sprite = filedata[0x80200:0x87200]
+            self.palette = filedata[0xDD508:0xDD580]
+            self.glove_palette = filedata[0xDEFF5:0xDEFF9]
+        elif filedata.startswith(b'ZSPR'):
+            result = self.parse_zspr(filedata, 1)
+            if result is None:
+                self.valid = False
+                return
+            (sprite, palette, self.name, self.author_name) = result
+            if len(sprite) != 0x7000:
+                self.valid = False
+                return
+            self.sprite = sprite
+            if len(palette) == 0:
+                self.palette = list(self.default_palette)
+                self.glove_palette = list(self.default_glove_palette)
+            elif len(palette) == 0x78:
+                self.palette = palette
+                self.glove_palette = list(self.default_glove_palette)
+            elif len(palette) == 0x7C:
+                self.palette = palette[:0x78]
+                self.glove_palette = palette[0x78:]
             else:
-                srcoff = baseoff + shuffled_offsets[off]*0x40 + h*0x200
+                self.valid = False
+        else:
+            self.valid = False
 
-            dstoff = 0x80000 + base_offsets[off]*0x40 + h*0x200
+    @staticmethod
+    def default_link_sprite():
+        return get_sprite_from_name('Link')
 
-            for w in range(0x40):
-                write_byte(rom, dstoff+w, srcsheet[srcoff+w])
+    def decode8(self, pos):
+        arr = [[0 for _ in range(8)] for _ in range(8)]
+        for y in range(8):
+            for x in range(8):
+                position = 1<<(7-x)
+                val = 0
+                if self.sprite[pos+2*y] & position:
+                    val += 1
+                if self.sprite[pos+2*y+1] & position:
+                    val += 2
+                if self.sprite[pos+2*y+16] & position:
+                    val += 4
+                if self.sprite[pos+2*y+17] & position:
+                    val += 8
+                arr[y][x] = val
+        return arr
+
+    def decode16(self, pos):
+        arr = [[0 for _ in range(16)] for _ in range(16)]
+        top_left = self.decode8(pos)
+        top_right = self.decode8(pos+0x20)
+        bottom_left = self.decode8(pos+0x200)
+        bottom_right = self.decode8(pos+0x220)
+        for x in range(8):
+            for y in range(8):
+                arr[y][x] = top_left[y][x]
+                arr[y][x+8] = top_right[y][x]
+                arr[y+8][x] = bottom_left[y][x]
+                arr[y+8][x+8] = bottom_right[y][x]
+        return arr
+
+    def parse_zspr(self, filedata, expected_kind):
+        logger = logging.getLogger('')
+        headerstr = "<4xBHHIHIHH6x"
+        headersize = struct.calcsize(headerstr)
+        if len(filedata) < headersize:
+            return None
+        (version, csum, icsum, sprite_offset, sprite_size, palette_offset, palette_size, kind) = struct.unpack_from(headerstr, filedata)
+        if version not in [1]:
+            logger.error('Error parsing ZSPR file: Version %g not supported', version)
+            return None
+        if kind != expected_kind:
+            return None
+
+        stream = io.BytesIO(filedata)
+        stream.seek(headersize)
+
+        def read_utf16le(stream):
+            "Decodes a null-terminated UTF-16_LE string of unknown size from a stream"
+            raw = bytearray()
+            while True:
+                char = stream.read(2)
+                if char in [b'', b'\x00\x00']:
+                    break
+                raw += char
+            return raw.decode('utf-16_le')
+
+        sprite_name = read_utf16le(stream)
+        author_name = read_utf16le(stream)
+
+        # Ignoring the Author Rom name for the time being.
+
+        real_csum = sum(filedata) % 0x10000
+        if real_csum != csum or real_csum ^ 0xFFFF != icsum:
+            logger.warning('ZSPR file has incorrect checksum. It may be corrupted.')
+
+        sprite = filedata[sprite_offset:sprite_offset + sprite_size]
+        palette = filedata[palette_offset:palette_offset + palette_size]
+
+        if len(sprite) != sprite_size or len(palette) != palette_size:
+            logger.error('Error parsing ZSPR file: Unexpected end of file')
+            return None
+
+        return (sprite, palette, sprite_name, author_name)
+
+    def decode_palette(self):
+        "Returns the palettes as an array of arrays of 15 colors"
+        def array_chunk(arr, size):
+            return list(zip(*[iter(arr)] * size))
+        def make_int16(pair):
+            return pair[1]<<8 | pair[0]
+
+        def expand_color(i):
+            return ((i & 0x1F) * 8, (i >> 5 & 0x1F) * 8, (i >> 10 & 0x1F) * 8)
+
+        raw_palette = self.palette
+        if raw_palette is None:
+            raw_palette = Sprite.default_palette
+        # turn palette data into a list of RGB tuples with 8 bit values
+        palette_as_colors = [expand_color(make_int16(chnk)) for chnk in array_chunk(raw_palette, 2)]
+
+        # split into palettes of 15 colors
+        return array_chunk(palette_as_colors, 15)
+
+    def __hash__(self):
+        return hash(self.name)
+
+spritesheets = list()
+def get_sprite_name(sprite):
+    return sprite.name
+
+def load_spritesheets(args):
+    sprite = Sprite(args.rom)
+    spritesheets.append(sprite)
+    if args.multisprite_simple or args.multisprite_full:
+        if args.sprite:
+            for x in args.sprite.split(","):
+                sprite = get_sprite_from_name(x)
+                spritesheets.append(sprite)
+        else:
+            _populate_sprite_table()
+            for sprite in set(_sprite_table.values()):
+                spritesheets.append(sprite)
+    
+    if len(spritesheets) > args.max_sprites:
+        spritesheets.sort(key=get_sprite_name)
+        random.shuffle(spritesheets)
+        while len(spritesheets) > args.max_sprites:
+            spritesheets.pop()
+
+    for sprite in spritesheets:
+        logging.info("Using sprite %s made by %s", sprite.name, sprite.author_name)
+
+def check_tile(sheet, src):
+    # srcoff = base_offsets[off]*0x40 + h*0x200
+    srcoff_old = (src[1]*16+src[0])*0x40
+    if len(src) == 2:
+        src[0] *= 2
+        src[1] *= 2
+        src.append(2)
+        src.append(2)
+    for h in range(src[3]):
+        for w in range(src[2]):
+            srcoff = (src[0] + w) * 0x20 + (src[1] + h) * 0x200
+            # logging.info("%d, %d - %d, %d - %d, %d, %d", src[0], src[1], src[2], src[3], srcoff, srcoff_old, len(sheet))
+            if sheet[srcoff]:
+                return True
+    return False
+
+def copy_tile(rom, sheet, src, dst):
+    if len(src) == 2:
+        src[0] *= 2
+        src[1] *= 2
+        src.append(2)
+        src.append(2)
+    if len(dst) == 2:
+        dst[0] *= 2
+        dst[1] *= 2
+        dst.append(2)
+        dst.append(2)
+    if src[2] != dst[2] or src[3] != dst[3]:
+        return # Not safe to overwrite the tile since width/heights don't match
+    for h in range(src[3]):
+        for w in range(src[2]):
+            srcoff = (src[0]+w)*0x20 + (src[1]+h)*0x200
+            dstoff = 0x80000 + (dst[0]+w)*0x20 + (dst[1]+h)*0x200
+            for z in range(0x20):
+                write_byte(rom, dstoff+z, sheet[srcoff+z])
+
+
+
+def shuffle_offsets(args, rom, base_offsets, shuffled_offsets, force_use_sprite=False):
+    for off in range(len(base_offsets)):
+        foundspr = force_use_sprite
+        random.shuffle(spritesheets)
+        srcsheet = spritesheets[0].sprite
+        for sprite in spritesheets:
+            if foundspr or check_tile(sprite.sprite, base_offsets[off] if args.multisprite_simple else shuffled_offsets[off]):
+                srcsheet = sprite.sprite
+                break
+
+        copy_tile(rom, srcsheet, base_offsets[off] if args.multisprite_simple else shuffled_offsets[off], base_offsets[off])
+
+def shuffle_palletes(args, rom):
+    offsets = [0, 30, 60, 90]
+    shuffled_offsets = offsets.copy()
+    if (args.palette):
+        random.shuffle(shuffled_offsets)
+
+    for off in range(len(offsets)):
+        sprite = random.choice(spritesheets)
+
+        if (args.multisprite_simple):
+            srcoff = offsets[off]
+        else:
+            srcoff = shuffled_offsets[off]
+
+        dstoff = 0xDD308 + offsets[off]
+        for w in range(30):
+            write_byte(rom, dstoff+w, sprite.palette[srcoff+w])
+
+    if (args.multisprite_simple or args.multisprite_full):
+        sprite = random.choice(spritesheets)
+        dstoff = 0xDEDF5
+        for w in range(4):
+            write_byte(rom, dstoff + w, sprite.glove_palette[w])
 
 # .zspr file dumping logic copied with permission from SpriteSomething:
 # https://github.com/Artheau/SpriteSomething/blob/master/source/meta/classes/spritelib.py#L443 (thanks miketrethewey!)
@@ -227,12 +503,14 @@ def shuffle_sprite(args):
 
         logger.info("Creating patched ROM: " + outfilename)
 
+    if (not args.seed):
+        args.seed = str(random.randint(0,999999999))
+
+    logger.info('Using Seed ' + args.seed)
+    random.seed(int(args.seed))
+
     rom = bytearray(open(args.rom, 'rb').read())
-
-    current_sprite = bytearray(28672)
-
-    for i in range(28672):
-        current_sprite[i] = rom[0x80000+i]
+    load_spritesheets(args)
 
     head_offsets_list = list(head_offsets.keys())
     shuffled_head_offsets = head_offsets_list.copy()
@@ -276,19 +554,33 @@ def shuffle_sprite(args):
     shuffled_all_offsets = all_offsets.copy()
     random.shuffle(shuffled_all_offsets)
 
-    spritelist = list()
-    if (args.multisprite_simple or args.multisprite_full):
-        for path in Path('./sprites/').rglob('*.zspr'):
-            spritelist.append(path)
+    shuffled_bunny_head_offsets = bunny_head_offsets.copy()
+    random.shuffle(shuffled_bunny_head_offsets)
 
-    if (args.head):
-        shuffle_offsets(args, rom, head_offsets_list, shuffled_head_offsets, spritelist, current_sprite)
+    shuffled_bunny_body_offsets = bunny_body_offsets.copy()
+    random.shuffle(shuffled_bunny_body_offsets)
 
-    if (args.body):
-        shuffle_offsets(args, rom, body_offsets, shuffled_body_offsets, spritelist, current_sprite)
-    
-    if (args.chaos):
-        shuffle_offsets(args, rom, all_offsets, shuffled_all_offsets, spritelist, current_sprite)
+    all_bunny_offsets = bunny_head_offsets + bunny_body_offsets
+    shuffled_all_bunny_offsets = all_bunny_offsets.copy()
+    random.shuffle(shuffled_all_bunny_offsets)
+
+    if not args.head and not args.body and not args.chaos:
+        shuffle_offsets(args, rom, all_offsets, all_offsets)
+        shuffle_offsets(args, rom, all_bunny_offsets, all_bunny_offsets)
+    elif args.chaos:
+        shuffle_offsets(args, rom, all_offsets, shuffled_all_offsets)
+        shuffle_offsets(args, rom, all_bunny_offsets, shuffled_all_bunny_offsets)
+    else:
+        if args.head:
+            shuffle_offsets(args, rom, head_offsets_list, shuffled_head_offsets)
+            shuffle_offsets(args, rom, bunny_head_offsets, shuffled_bunny_head_offsets)
+        if args.body:
+            shuffle_offsets(args, rom, body_offsets, shuffled_body_offsets)
+            shuffle_offsets(args, rom, bunny_body_offsets, shuffled_bunny_body_offsets)
+
+    #multisprite_simple/multisprite_full shuffle of remaining sprites, forcing the current selection to remain in place AND be used, even if blank.
+    shuffle_offsets(args, rom, unused_offsets, unused_offsets, True)
+    shuffle_palletes(args, rom)
 
     if (args.zspr):
         dump_zspr(rom, outfilename)
@@ -348,7 +640,7 @@ def dump_sprites(args):
     for sprite in obsolete_sprites:
         try:
             logger.info("Removing obsolete sprite %g/%g" % (deleted + 1, len(obsolete_sprites)))
-            os.remove(os.path.join(self.alttpr_sprite_dir, sprite))
+            os.remove(os.path.join(alttpr_sprite_dir, sprite))
         except Exception as e:
             logger.info("Error removing obsolete sprite. Not all sprites updated.\n\n%s: %s" % (type(e).__name__, e))
             successful = False
@@ -372,10 +664,14 @@ if __name__ == '__main__':
     parser.add_argument('--zspr', help='Output a .zspr instead of a patched rom, convenient for use in other sprite loaders (like the one on alttpr.com)', action='store_true')
     parser.add_argument('--head', help='Shuffle head sprites among each other.', action='store_true')
     parser.add_argument('--body', help='Shuffle body sprites among each other.', action='store_true')
+    parser.add_argument('--palette', help='Shuffle the armour/bunny palettes.', action='store_true')
+    parser.add_argument('--sprite', help='Specifies a comma separated list of sprites to use')
+    parser.add_argument('--max_sprites', help='Max number of sprites to use for multisprite_* options', type=int, default=3)
     parser.add_argument('--multisprite_simple', help='Choose each sprite randomly from all spritesheets in sprites/ as sources, instead of the current spritesheet in the provided rom. Keep poses unshuffled (i.e. each sprite will be sourced from the same position in a random sprite).', action='store_true')
     parser.add_argument('--multisprite_full', help='Choose each sprite randomly from all spritesheets in sprites/ as sources, instead of the current spritesheet in the provided rom. Shuffle poses according to other args (i.e. each sprite will be sourced from a random position in a random spritesheet according to the other --head/--body/--chaos arguments).', action='store_true')
     parser.add_argument('--chaos', help='Shuffle all head/body sprites among each other. This will look weird.', action='store_true')
     parser.add_argument('--dumpsprites', help='Update ./sprites/alttpr/ with the latest sprites from https://alttpr.com/sprites for use with the --multisprite options.', action='store_true')
+    parser.add_argument('--seed', help='Specifies a seed that determines the sprite shuffle process')
     args = parser.parse_args()
 
     if not args.dumpsprites:
