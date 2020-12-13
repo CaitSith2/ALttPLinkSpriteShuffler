@@ -100,15 +100,17 @@ body_offsets = [
 bunny_head_offsets = [[5, 25], [2, 26], [5, 26]]
 bunny_body_offsets = [[7, 25], [0, 26], [2, 26], [3, 26], [5, 26], [6, 26]]
 
+swimming_head_offsets = [[5, 7],  [6, 7],  [7, 7],
+                         [3, 9],  [4, 9]]
+swimming_body_offsets = [[3, 8],  [4, 8],  [5, 8],  [6, 8],  [7, 8],
+                         [0, 9],  [1, 9],  [2, 9]]
+
 unused_offsets = [
 [5, 3],  [6, 3],
 [0, 4],  [1, 4],  [5, 4],  [6, 4],
 [0, 10, 2, 3],  [2, 10, 2, 3],  [4, 10, 2, 3],  [6, 10, 2, 3],  [8, 10, 2, 3],
 [0, 13, 3, 3],  [3, 13, 2, 3],  [5, 13, 2, 3],  [7, 13, 2, 3],  [8, 13, 1, 1],  [8, 14, 1, 1],  [8, 15, 1, 1],  [5, 6],  [6, 6],
-
-[5, 7],  [6, 7],  [7, 7],
-[3, 8],  [4, 8],  [5, 8],  [6, 8],  [7, 8],
-[0, 9],  [1, 9],  [2, 9],  [3, 9],  [4, 9],  [10, 18, 1, 1], [10, 19, 1, 1],  [11, 18, 2, 2],  [13, 18, 3, 2],
+[10, 18, 1, 1], [10, 19, 1, 1],  [11, 18, 2, 2],  [13, 18, 3, 2],
 [0, 10], [1, 10], [2, 10], [5, 10], [6, 10], [7, 10],
 [0, 11], [1, 11], [2, 11],
 [0, 30, 1, 1], [0, 31, 1, 1], [1, 30, 1, 1], [0, 31, 1, 1],
@@ -579,19 +581,33 @@ def shuffle_sprite(args):
     shuffled_all_bunny_offsets = all_bunny_offsets.copy()
     random.shuffle(shuffled_all_bunny_offsets)
 
+    shuffled_swimming_head_offsets = swimming_head_offsets.copy()
+    random.shuffle(shuffled_swimming_head_offsets)
+
+    shuffled_swimming_body_offsets = swimming_body_offsets.copy()
+    random.shuffle(shuffled_swimming_body_offsets)
+
+    all_swimming_offsets = swimming_head_offsets + swimming_body_offsets
+    shuffled_all_swimming_offsets = all_swimming_offsets.copy()
+    random.shuffle(shuffled_all_swimming_offsets)
+
     if not args.head and not args.body and not args.chaos:
         shuffle_offsets(args, rom, all_offsets, all_offsets)
         shuffle_offsets(args, rom, all_bunny_offsets, all_bunny_offsets)
+        shuffle_offsets(args, rom, all_swimming_offsets, all_swimming_offsets)
     elif args.chaos:
         shuffle_offsets(args, rom, all_offsets, shuffled_all_offsets)
         shuffle_offsets(args, rom, all_bunny_offsets, shuffled_all_bunny_offsets)
+        shuffle_offsets(args, rom, all_swimming_offsets, shuffled_all_swimming_offsets)
     else:
         if args.head:
             shuffle_offsets(args, rom, head_offsets_list, shuffled_head_offsets)
             shuffle_offsets(args, rom, bunny_head_offsets, shuffled_bunny_head_offsets)
+            shuffle_offsets(args, rom, swimming_head_offsets, shuffled_swimming_head_offsets)
         if args.body:
             shuffle_offsets(args, rom, body_offsets, shuffled_body_offsets)
             shuffle_offsets(args, rom, bunny_body_offsets, shuffled_bunny_body_offsets)
+            shuffle_offsets(args, rom, swimming_body_offsets, shuffled_swimming_body_offsets)
 
     #multisprite_simple/multisprite_full shuffle of remaining sprites, forcing the current selection to remain in place AND be used, even if blank.
     shuffle_offsets(args, rom, unused_offsets, unused_offsets, True)
